@@ -5,7 +5,7 @@
       "password": "password123",
       "username": "rahul",
       "account_number": "1234567890",
-      "balance": 990064.73,
+      "balance": 980064.73,
       "account_type": "Savings",
       "contact": "rahul@example.com",
       "address": "12 Gandhi Road, Coimbatore"
@@ -19,95 +19,6 @@
       "account_type": "Checking",
       "contact": "cravin@example.com",
       "address": "34 Nehru Street, Coimbatore"
-    },
-    "admin": {
-      "name": "rahul",
-      "email": "rrap99810@gmail.com",
-      "phone": "9884272564",
-      "address": "classic avenue",
-      "account_type": "Regular Savings Account",
-      "aadhar_number": "748638732270",
-      "pan_number": "HJUPP9663L",
-      "balance": 989.0,
-      "account_number": "1717692204",
-      "password": "a1259bf61a5c4330486b4f322b1e0165f14aa0f6b1d84fa3c788ad5861a80ea4"
-    },
-    "swethaadmin": {
-      "name": "swetha",
-      "email": "swetha123",
-      "phone": "9344560885",
-      "address": "karadimadai",
-      "account_type": "Regular Savings Account",
-      "aadhar_number": "748638732270",
-      "pan_number": "ASPPP7752H",
-      "balance": 489.0,
-      "account_number": "2596695195",
-      "password": "a1259bf61a5c4330486b4f322b1e0165f14aa0f6b1d84fa3c788ad5861a80ea4"
-    },
-    "tony": {
-      "name": "harshavardhan",
-      "email": "tonyspidey@gmail.com",
-      "phone": "1234567890",
-      "address": "tamilnadu india",
-      "account_type": "Regular Savings Account",
-      "aadhar_number": "987456123789",
-      "pan_number": "HJUPP9663L",
-      "balance": 1000.0,
-      "account_number": "6561344305",
-      "password": "2ffe411ef7d88ae4a893720173cc559f63c824acde0c4a6015bea99542a4afd8"
-    },
-    "admint": {
-      "name": "thangam mam ",
-      "email": "rrap@gmail.com",
-      "phone": "1234567890",
-      "address": "cgvak",
-      "account_type": "Regular Savings Account",
-      "aadhar_number": "123456789123",
-      "pan_number": "HJUPP9663L",
-      "balance": 1000.0,
-      "account_number": "5963889028",
-      "password": "43886eca97790b87b523aaab13f1274e21150473e0e1785b11f875d0bf726f8e"
-    },
-    "thangammam123": {
-      "name": "thangam",
-      "email": "RRAp99810",
-      "phone": "6382074060",
-      "address": "class",
-      "account_type": "Regular Savings Account",
-      "aadhar_number": "748638732270",
-      "pan_number": "HJUPP9663L",
-      "balance": 1000.0,
-      "account_number": "1584157151",
-      "password": "3d14513ed452818ecdf6ead508fa9cc5ac677e6a2aa0d52a2c3683bace70d35e"
-    },
-    "asha@22": {
-      "name": "ASHA",
-      "email": "ASHa33@gmail.com",
-      "phone": "6382074060",
-      "address": "classic",
-      "account_type": "Regular Savings Account",
-      "aadhar_number": "123412341234",
-      "pan_number": "ASPPP5522H",
-      "balance": 999.0,
-      "account_number": "8177537383",
-      "password": "c092a86cf3d76798a7de7e152f03e97919946e9b8858ce7ad17af9370f53851c",
-      "netbanking_enabled": true
-    },
-    "johndoe": {
-      "name": "John Doe",
-      "email": "john@gmail.com",
-      "phone": "9874563210",
-      "address": "ABC Street",
-      "account_type": "Regular Savings Account",
-      "aadhar_number": "456987456987",
-      "pan_number": "HJUPP9966L",
-      "balance": 900.0,
-      "account_number": "4355808604",
-      "password": "9962a0c89e87748315fedc28a2d1031d007627369e9b1bf0cab671fac7e8e305",
-      "cards": [
-        "rupay_classic"
-      ],
-      "netbanking_enabled": false
     }
   },
   "bank_info": {
@@ -383,28 +294,8 @@
       "amt": -10000.0
     },
     {
-      "name": "Transfer to cravin",
-      "amt": -500.0
-    },
-    {
-      "name": "Transfer to rahul",
-      "amt": -10.0
-    },
-    {
-      "name": "Transfer to ganesh",
-      "amt": -11.0
-    },
-    {
-      "name": "Transfer to dhanush",
-      "amt": -1.0
-    },
-    {
-      "name": "Transfer to appa",
-      "amt": -1.0
-    },
-    {
-      "name": "Transfer to ganesh ",
-      "amt": -100.0
+      "name": "Transfer to askok",
+      "amt": -10000.0
     }
   ],
   "account_requests": [
@@ -486,73 +377,6 @@
       "interest_rate": 4.0,
       "documents": "Age Proof, Address Proof",
       "features": "Higher interest rates, Priority services, Special pension benefits"
-    }
-  },
-  "cards": {
-    "visa_platinum": {
-      "name": "Visa Platinum Credit Card",
-      "type": "credit",
-      "limit": "\u20b91,00,000",
-      "interest_rate": "1.5% per month",
-      "annual_fee": "\u20b92,500",
-      "rewards": "5% cashback on groceries, 3% on fuel, 1% on all other purchases",
-      "benefits": "Travel insurance, Airport lounge access, Purchase protection",
-      "activation": "Call 1800-123-4567 or visit netbanking to activate",
-      "hotlisting": "Call 1800-123-4567 immediately if card is lost/stolen"
-    },
-    "mastercard_gold": {
-      "name": "Mastercard Gold Debit Card",
-      "type": "debit",
-      "limit": "\u20b950,000 daily withdrawal",
-      "interest_rate": "N/A",
-      "annual_fee": "\u20b9500",
-      "rewards": "1% cashback on all purchases",
-      "benefits": "Zero liability protection, Contactless payments",
-      "activation": "Automatically activated upon issuance",
-      "hotlisting": "Call 1800-123-4567 or block via netbanking"
-    },
-    "rupay_classic": {
-      "name": "RuPay Classic Debit Card",
-      "type": "debit",
-      "limit": "\u20b925,000 daily withdrawal",
-      "interest_rate": "N/A",
-      "annual_fee": "Free",
-      "rewards": "Discounts on fuel and railway tickets",
-      "benefits": "Domestic use only, Low cost transactions",
-      "activation": "Call 1800-123-4567 or visit ATM to activate",
-      "hotlisting": "Call 1800-123-4567 or block via netbanking"
-    }
-  },
-  "netbanking_features": {
-    "fund_transfer": {
-      "description": "Transfer funds between your accounts or to other bank accounts",
-      "limits": "Up to \u20b91,00,000 per transaction, \u20b95,00,000 daily limit",
-      "processing_time": "Instant for CGBank accounts, 1-2 hours for other banks"
-    },
-    "bill_payments": {
-      "description": "Pay utility bills, credit cards, and other payments",
-      "limits": "No limit for registered billers",
-      "processing_time": "Instant"
-    },
-    "card_management": {
-      "description": "Activate new cards, set limits, block lost cards",
-      "limits": "Can adjust daily limits up to card maximum",
-      "processing_time": "Immediate"
-    },
-    "investment": {
-      "description": "Open fixed deposits, recurring deposits, and other investments",
-      "limits": "Minimum \u20b95,000 for FDs, \u20b91,000 for RDs",
-      "processing_time": "Instant"
-    },
-    "loan_application": {
-      "description": "Apply for personal loans, home loans, and other products",
-      "limits": "As per eligibility",
-      "processing_time": "24-48 hours for approval"
-    },
-    "cheque_services": {
-      "description": "Request cheque books, stop cheque payments",
-      "limits": "25 leaves per cheque book",
-      "processing_time": "5-7 business days for delivery"
     }
   }
 }

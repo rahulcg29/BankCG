@@ -22,6 +22,20 @@ from email.mime.multipart import MIMEMultipart
 import os
 from io import BytesIO
 from pathlib import Path
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import spacy
+from spacy.lang.en.stop_words import STOP_WORDS
+from string import punctuation
+from heapq import nlargest
+
+# Load English language model for NLP
+try:
+    nlp = spacy.load('en_core_web_sm')
+except:
+    st.error("Spacy model 'en_core_web_sm' not found. Please install it.")
+    st.stop()
 
 # Load the bank data with error handling
 try:
@@ -37,11 +51,97 @@ except json.JSONDecodeError:
 # Ensure all required keys exist in BANK_DATA
 REQUIRED_KEYS = ['users', 'bank_info', 'loan_products', 'government_schemes', 
                 'transactions_history', 'bills', 'spending_categories', 'bot_responses',
-                'account_info', 'account_requests']
+                'account_info', 'account_requests', 'cards', 'netbanking_features']
 for key in REQUIRED_KEYS:
     if key not in BANK_DATA:
         if key == 'account_requests':
             BANK_DATA['account_requests'] = []
+        elif key == 'users':
+            BANK_DATA['users'] = {
+                "admin": {
+                    "name": "Admin User",
+                    "email": "admin@cgbank.com",
+                    "phone": "9876543210",
+                    "address": "CGBank Head Office",
+                    "account_type": "Admin Account",
+                    "aadhar_number": "999999999999",
+                    "pan_number": "AAAAA9999A",
+                    "balance": 100000.0,
+                    "account_number": "0000000001",
+                    "password": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",  # sha256 of 'admin'
+                    "cards": ["visa_platinum", "mastercard_gold"],
+                    "netbanking_enabled": True
+                }
+            }
+        elif key == 'cards':
+            BANK_DATA['cards'] = {
+                "visa_platinum": {
+                    "name": "Visa Platinum Credit Card",
+                    "type": "credit",
+                    "limit": "₹1,00,000",
+                    "interest_rate": "1.5% per month",
+                    "annual_fee": "₹2,500",
+                    "rewards": "5% cashback on groceries, 3% on fuel, 1% on all other purchases",
+                    "benefits": "Travel insurance, Airport lounge access, Purchase protection",
+                    "activation": "Call 1800-123-4567 or visit netbanking to activate",
+                    "hotlisting": "Call 1800-123-4567 immediately if card is lost/stolen"
+                },
+                "mastercard_gold": {
+                    "name": "Mastercard Gold Debit Card",
+                    "type": "debit",
+                    "limit": "₹50,000 daily withdrawal",
+                    "interest_rate": "N/A",
+                    "annual_fee": "₹500",
+                    "rewards": "1% cashback on all purchases",
+                    "benefits": "Zero liability protection, Contactless payments",
+                    "activation": "Automatically activated upon issuance",
+                    "hotlisting": "Call 1800-123-4567 or block via netbanking"
+                },
+                "rupay_classic": {
+                    "name": "RuPay Classic Debit Card",
+                    "type": "debit",
+                    "limit": "₹25,000 daily withdrawal",
+                    "interest_rate": "N/A",
+                    "annual_fee": "Free",
+                    "rewards": "Discounts on fuel and railway tickets",
+                    "benefits": "Domestic use only, Low cost transactions",
+                    "activation": "Call 1800-123-4567 or visit ATM to activate",
+                    "hotlisting": "Call 1800-123-4567 or block via netbanking"
+                }
+            }
+        elif key == 'netbanking_features':
+            BANK_DATA['netbanking_features'] = {
+                "fund_transfer": {
+                    "description": "Transfer funds between your accounts or to other bank accounts",
+                    "limits": "Up to ₹1,00,000 per transaction, ₹5,00,000 daily limit",
+                    "processing_time": "Instant for CGBank accounts, 1-2 hours for other banks"
+                },
+                "bill_payments": {
+                    "description": "Pay utility bills, credit cards, and other payments",
+                    "limits": "No limit for registered billers",
+                    "processing_time": "Instant"
+                },
+                "card_management": {
+                    "description": "Activate new cards, set limits, block lost cards",
+                    "limits": "Can adjust daily limits up to card maximum",
+                    "processing_time": "Immediate"
+                },
+                "investment": {
+                    "description": "Open fixed deposits, recurring deposits, and other investments",
+                    "limits": "Minimum ₹5,000 for FDs, ₹1,000 for RDs",
+                    "processing_time": "Instant"
+                },
+                "loan_application": {
+                    "description": "Apply for personal loans, home loans, and other products",
+                    "limits": "As per eligibility",
+                    "processing_time": "24-48 hours for approval"
+                },
+                "cheque_services": {
+                    "description": "Request cheque books, stop cheque payments",
+                    "limits": "25 leaves per cheque book",
+                    "processing_time": "5-7 business days for delivery"
+                }
+            }
         else:
             st.error(f"Error: Missing required key '{key}' in dummydata.json!")
             st.stop()
@@ -237,7 +337,7 @@ class FeedbackSystem:
             # Email configuration
             sender_email = "cravinsanjay22@gmail.com"
             sender_password = "gror taom ymiq dhat"
-            receiver_email = "rahulup893@gmail.com"
+            receiver_email = "cravinsanjay10@gmail.com"
             
             # Create message
             message = MIMEMultipart()
@@ -275,7 +375,7 @@ class CGBankDatabase:
     def _save_data():
         """Save the current BANK_DATA to the JSON file"""
         try:
-            with open('cgbank_data.json', 'w') as f:
+            with open('dummydata.json', 'w') as f:
                 json.dump(BANK_DATA, f, indent=2)
             return True
         except Exception as e:
@@ -303,7 +403,37 @@ class CGBankDatabase:
         user = CGBankDatabase.get_user(username)
         if not user:
             return False
-        return user['password'] == password
+        
+        # Get the hashed password from user data
+        stored_password = user.get('password')
+        if not stored_password:
+            return False
+            
+        # Hash the provided password and compare
+        hashed_password = CGBankDatabase.hash_password(password)
+        return stored_password == hashed_password
+    
+    @staticmethod
+    def create_user(username: str, password: str, user_data: Dict[str, Any]) -> bool:
+        """Create a new user account"""
+        if CGBankDatabase.get_user(username):
+            return False  # User already exists
+            
+        # Hash the password before storing
+        user_data['password'] = CGBankDatabase.hash_password(password)
+        
+        # Add default account information if not provided
+        user_data.setdefault('account_number', str(random.randint(1000000000, 9999999999)))
+        user_data.setdefault('balance', 1000.0)
+        user_data.setdefault('account_type', 'Regular Savings Account')
+        user_data.setdefault('cards', ["rupay_classic"])  # Default card for new users
+        user_data.setdefault('netbanking_enabled', False)  # Netbanking disabled by default
+        
+        # Store the user data
+        BANK_DATA['users'][username.lower()] = user_data
+        
+        # Save to JSON file
+        return CGBankDatabase._save_data()
     
     @staticmethod
     def get_bank_info() -> Dict[str, Any]:
@@ -461,6 +591,41 @@ class CGBankDatabase:
         except Exception as e:
             print(f"Error saving account request: {e}")
             return False
+    
+    @staticmethod
+    def get_card_details(card_id: str) -> Optional[Dict[str, Any]]:
+        """Get details for a specific card"""
+        return BANK_DATA['cards'].get(card_id)
+    
+    @staticmethod
+    def get_user_cards(username: str) -> List[Dict[str, Any]]:
+        """Get all cards associated with a user"""
+        user = CGBankDatabase.get_user(username)
+        if not user or 'cards' not in user:
+            return []
+        
+        user_cards = []
+        for card_id in user['cards']:
+            card_details = CGBankDatabase.get_card_details(card_id)
+            if card_details:
+                user_cards.append({**card_details, 'id': card_id})
+        
+        return user_cards
+    
+    @staticmethod
+    def get_netbanking_features() -> Dict[str, Any]:
+        """Get all netbanking features"""
+        return BANK_DATA['netbanking_features']
+    
+    @staticmethod
+    def enable_netbanking(username: str) -> bool:
+        """Enable netbanking for a user"""
+        user = CGBankDatabase.get_user(username)
+        if not user:
+            return False
+        
+        user['netbanking_enabled'] = True
+        return CGBankDatabase._save_data()
 
 class RexaBot:
     """CGBank's intelligent banking assistant with enhanced NLP capabilities"""
@@ -480,8 +645,8 @@ class RexaBot:
             'bill_payment': ['pay bill', 'bill payment', 'utility bill', 'electricity bill', 
                            'water bill', 'gas bill', 'phone bill', 'internet bill',
                            'credit card bill', 'mobile recharge'],
-            'bank_info': ['about cgbank', 'bank information', 'bank details', 'cgbank', 
-                         'bank services', 'products offered', 'bank features', 'branch locations',
+            'bank_info': ['about cgbank', 'bank information', 'bank details', 'what is cgbank', 
+                         'bank services', 'products offered', 'bank features', 'branch locations','branches',
                          'contact bank', 'bank timings'],
             'loan_info': ['loan', 'borrow', 'credit', 'home loan', 'personal loan', 'car loan',
                          'education loan', 'interest rates', 'eligibility', 'how to apply',
@@ -498,10 +663,70 @@ class RexaBot:
             'filter_transactions': ['transactions above', 'transactions below', 'transactions between',
                                   'transactions greater than', 'transactions less than', 
                                   'transactions from', 'transactions to', 'transactions in',
-                                  'show transactions', 'find transactions', 'search transactions']
+                                  'show transactions', 'find transactions', 'search transactions'],
+            'atm_info': ['atm', 'atm location', 'nearest atm', 'atm near me', 'atm card', 
+                        'atm withdrawal limit', 'atm charges', 'atm limit', 'atm pin'],
+            'card_info': ['debit card', 'credit card', 'card details', 'card limit', 
+                         'card activation', 'card lost', 'card stolen', 'card block',
+                         'card replacement', 'card upgrade', 'my cards', 'card services'],
+            'card_management': ['activate card', 'block card', 'hotlist card', 'report card', 
+                              'card limit', 'change pin', 'card security', 'card features',
+                              'card benefits', 'card rewards'],
+            'netbanking_info': ['netbanking', 'online banking', 'internet banking', 'digital banking',
+                              'banking app', 'mobile banking', 'netbanking features', 'online services',
+                              'digital services', 'enable netbanking'],
+            'customer_support': ['contact support', 'customer service', 'help desk', 'support number',
+                               'complaint', 'grievance', 'issue', 'problem', 'help', 'assistance'],
+            'interest_rates': ['interest rate', 'savings rate', 'fd rate', 'fixed deposit rate',
+                             'loan rate', 'deposit rate', 'current account rate', 'rd rate'],
+            'security_info': ['security', 'fraud', 'scam', 'phishing', 'safe banking', 
+                            'account security', 'secure login', 'two factor authentication',
+                            '2fa', 'security tips'],
+            'investment_info': ['investment', 'fd', 'fixed deposit', 'rd', 'recurring deposit',
+                              'mutual fund', 'insurance', 'wealth management', 'financial planning',
+                              'investment options'],
+            'account_details': ['my account', 'account details', 'my account details', 'account information',
+                              'my account info', 'show my account', 'what is my account', 'account summary',
+                              'my account summary', 'account overview']
         }
         
         self.knowledge_base = self._create_knowledge_base()
+        self.vectorizer = TfidfVectorizer()
+        self._train_similarity_model()
+    
+    def _train_similarity_model(self):
+        """Train a TF-IDF model for similarity matching"""
+        # Create a corpus of all possible questions and keywords
+        corpus = []
+        for intent, keywords in self.service_keywords.items():
+            corpus.extend(keywords)
+            # Add intent as a keyword too
+            corpus.append(intent)
+        
+        # Add some sample questions
+        corpus.extend([
+            "how to check my balance",
+            "where is the nearest ATM",
+            "what is the interest rate for savings account",
+            "how to transfer money to another account",
+            "I lost my debit card what should I do",
+            "what documents are needed to open an account",
+            "how to apply for a home loan",
+            "what are the government schemes available",
+            "how to generate account statement",
+            "what is the customer support number",
+            "how to activate my credit card",
+            "what are the benefits of my debit card",
+            "how to enable netbanking",
+            "what services are available in netbanking",
+            "show my account details",
+            "what is my account information",
+            "tell me about my account",
+            "what cards do I have"
+        ])
+        
+        # Train the vectorizer
+        self.vectorizer.fit(corpus)
     
     def _create_knowledge_base(self) -> Dict[str, Any]:
         """Create a structured knowledge base from the JSON data"""
@@ -511,7 +736,14 @@ class RexaBot:
             'schemes': CGBankDatabase.get_government_schemes(),
             'accounts': CGBankDatabase.get_account_info(),
             'services': CGBankDatabase.get_bank_info().get('services', []),
-            'branches': CGBankDatabase.get_bank_info().get('branches', [])
+            'branches': CGBankDatabase.get_bank_info().get('branches', []),
+            'atm_locations': CGBankDatabase.get_bank_info().get('atm_locations', []),
+            'card_services': CGBankDatabase.get_bank_info().get('card_services', {}),
+            'interest_rates': CGBankDatabase.get_bank_info().get('interest_rates', {}),
+            'investment_products': CGBankDatabase.get_bank_info().get('investment_products', []),
+            'security_info': CGBankDatabase.get_bank_info().get('security_info', {}),
+            'cards': CGBankDatabase.get_bank_info().get('cards', {}),
+            'netbanking_features': CGBankDatabase.get_netbanking_features()
         }
         return kb
     
@@ -523,10 +755,17 @@ class RexaBot:
         """Enhanced loan info extraction with fuzzy matching"""
         loans = CGBankDatabase.get_loan_products()
         
+        # First try exact match with loan keys
         for key, loan_data in loans.items():
+            if loan_type.lower() == key.lower():
+                return self._format_loan_response(loan_data)
+        
+        # Then try matching with loan names
+        for loan_data in loans.values():
             if loan_type.lower() in loan_data['name'].lower():
                 return self._format_loan_response(loan_data)
         
+        # Finally try fuzzy matching
         loan_names = [loan['name'].lower() for loan in loans.values()]
         matches = get_close_matches(loan_type.lower(), loan_names, n=1, cutoff=0.6)
         
@@ -540,11 +779,16 @@ class RexaBot:
     
     def _format_loan_response(self, loan_data: Dict[str, Any]) -> str:
         """Format loan information into a response"""
-        return (f"**{loan_data['name']}**\n"
-               f"- Amount: {loan_data['amount']}\n"
-               f"- Interest Rate: {loan_data['interest']}\n"
-               f"- Tenure: {loan_data['tenure']}\n\n"
-               f"Visit any CGBank branch to apply!")
+        eligibility = "\n".join([f"- {item}" for item in loan_data.get('eligibility', [])])
+        documents = "\n".join([f"- {doc}" for doc in loan_data.get('documents', [])])
+        
+        return (f"**{loan_data['name']}**\n\n"
+               f"**Amount:** {loan_data['amount']}\n"
+               f"**Interest Rate:** {loan_data['interest']}\n"
+               f"**Tenure:** {loan_data['tenure']}\n\n"
+               f"**Eligibility Criteria:**\n{eligibility}\n\n"
+               f"**Required Documents:**\n{documents}\n\n"
+               f"**How to Apply:** {loan_data.get('application', 'Visit any CGBank branch to apply!')}")
     
     def _get_all_loans_info(self) -> str:
         """Get information about all loan products"""
@@ -555,16 +799,25 @@ class RexaBot:
                         f"- Amount: {loan['amount']}\n"
                         f"- Interest: {loan['interest']}\n"
                         f"- Tenure: {loan['tenure']}\n\n")
+        
+        response += "\nYou can ask about specific loans like 'home loan', 'personal loan', or 'education loan' for more details."
         return response
     
     def _extract_scheme_info(self, scheme_name: str) -> str:
         """Enhanced scheme info extraction with fuzzy matching"""
         schemes = CGBankDatabase.get_government_schemes()
         
+        # First try exact match with scheme keys
         for key, scheme_data in schemes.items():
+            if scheme_name.lower() == key.lower():
+                return self._format_scheme_response(scheme_data)
+        
+        # Then try matching with scheme names
+        for scheme_data in schemes.values():
             if scheme_name.lower() in scheme_data['name'].lower():
                 return self._format_scheme_response(scheme_data)
         
+        # Finally try fuzzy matching
         scheme_names = [scheme['name'].lower() for scheme in schemes.values()]
         matches = get_close_matches(scheme_name.lower(), scheme_names, n=1, cutoff=0.6)
         
@@ -579,9 +832,12 @@ class RexaBot:
     def _format_scheme_response(self, scheme_data: Dict[str, Any]) -> str:
         """Format scheme information into a response"""
         benefits = "\n".join([f"- {benefit}" for benefit in scheme_data['benefits']])
+        documents = "\n".join([f"- {doc}" for doc in scheme_data.get('documents', [])])
+        
         return (f"**{scheme_data['name']}**\n\n"
                f"**Benefits:**\n{benefits}\n\n"
                f"**Eligibility:** {scheme_data['eligibility']}\n\n"
+               f"**Required Documents:**\n{documents}\n\n"
                f"**How to Apply:** {scheme_data['application']}")
     
     def _get_all_schemes_info(self) -> str:
@@ -591,6 +847,8 @@ class RexaBot:
         for scheme in schemes.values():
             response += f"**{scheme['name']}**\n"
             response += f"- Eligibility: {scheme['eligibility']}\n\n"
+        
+        response += "\nYou can ask about specific schemes like 'Modi Scheme', 'PM Farmer Scheme', or 'Thangamagal Scheme' for more details."
         return response
     
     def _extract_account_info(self, account_type: str) -> str:
@@ -624,27 +882,40 @@ class RexaBot:
         accounts = CGBankDatabase.get_account_info()
         response = "**Account Opening Process at CGBank:**\n\n"
         response += "To open a new account with CGBank, please follow these steps:\n\n"
-        response += "1. Aadhar card xerox or any other government ID proof\n\n"
-        response += "2. Passport size photo\n\n"
-        response += "3. Min deposit amount ₹500\n\n"    
-        response += "Contact our nearest branch to create a new bank account"   
+        response += "1. **Visit a Branch**: Go to any CGBank branch with your documents\n"
+        response += "2. **Fill Application**: Complete the account opening form\n"
+        response += "3. **Submit Documents**: Provide required KYC documents\n"
+        response += "4. **Initial Deposit**: Make the minimum required deposit\n"
+        response += "5. **Account Activation**: Your account will be activated within 24 hours\n\n"
+        
+        response += "**Required Documents**:\n"
+        response += "- Aadhar card (original + copy)\n"
+        response += "- PAN card (original + copy)\n"
+        response += "- Passport size photographs (2)\n"
+        response += "- Address proof (if current address differs from Aadhar)\n\n"
+        
+        response += "**Minimum Deposit Amounts**:\n"
+        for account_type, account_data in accounts.items():
+            response += f"- {account_data.get('name', account_type)}: ₹{account_data.get('min_balance', 0):,.2f}\n"
+        
+        response += "\n**Contact our nearest branch to create a new bank account**"
         return response
 
     def _format_account_response(self, account_data: Dict[str, Any]) -> str:
         """Format account information into a response with proper field checking"""
         try:
             name = account_data.get('name', 'Account')
-            features = account_data.get('features', 'No special features')
+            features = "\n".join([f"- {feature}" for feature in account_data.get('features', 'No special features').split(',')])
             min_balance = account_data.get('min_balance', 0)
             interest_rate = account_data.get('interest_rate', 0)
-            documents = account_data.get('documents', 'Not specified')
+            documents = "\n".join([f"- {doc.strip()}" for doc in account_data.get('documents', 'Not specified').split(',')])
             
             return (f"**{name}**\n\n"
                    f"**Features:**\n{features}\n\n"
                    f"**Minimum Balance:** ₹{min_balance:,.2f}\n"
                    f"**Interest Rate:** {interest_rate}%\n"
-                   f"**Required Documents:** {documents}\n\n"
-                   f"Visit any CGBank branch to open this account!")
+                   f"**Required Documents:**\n{documents}\n\n"
+                   f"**How to Open:** Visit any CGBank branch with the required documents")
         except Exception as e:
             print(f"Error formatting account response: {e}")
             return "I'm having trouble retrieving the account details. Please try again later."
@@ -661,6 +932,7 @@ class RexaBot:
             response += (f"**{name}**\n"
                         f"- Min Balance: ₹{min_balance:,.2f}\n"
                         f"- Interest: {interest_rate}%\n\n")
+        
         response += "\nYou can ask me about specific accounts like 'student account', 'NRI account', or 'senior account' for more details."
         return response
     
@@ -735,8 +1007,12 @@ class RexaBot:
             1. Be polite and professional
             2. Provide accurate information from the knowledge base
             3. If unsure, ask for clarification
-            4. Keep responses concise but helpful
+            4. Keep responses concise but helpful (100-200 words max)
             5. For account-specific queries, verify user is logged in
+            6. Format responses with Markdown for better readability
+            7. Use bullet points for lists
+            8. Highlight important numbers/rates in bold
+            9. Always end with a helpful follow-up question or suggestion
             
             Response:
             """
@@ -746,7 +1022,7 @@ class RexaBot:
                 prompt=prompt,
                 options={
                     'temperature': 0.7,
-                    'max_tokens': 200,
+                    'max_tokens': 300,
                     'top_p': 0.9
                 }
             )
@@ -757,23 +1033,104 @@ class RexaBot:
             return "I'm having trouble processing your request. Please try again later."
     
     def _identify_intent(self, message: str) -> Optional[str]:
-        """Identify the intent of the user message using NLP techniques"""
+        """Identify the intent of the user message using advanced NLP techniques"""
         message = message.lower()
         
+        # Preprocess the message
+        doc = nlp(message)
+        processed_message = " ".join([token.lemma_ for token in doc if not token.is_stop and not token.is_punct])
+        
+        # Special handling for minimum balance queries about account types
+        if 'minimum balance' in message or 'min balance' in message:
+            account_type_keywords = ['student', 'nri', 'senior', 'regular', 'savings']
+            if any(keyword in message for keyword in account_type_keywords):
+                return 'account_info'
+            # If no account type mentioned but asking about minimum balance in general
+            elif 'account' in message or 'type' in message:
+                return 'account_info'
+        
+        # Special handling for account balance vs account information
+        if 'balance' in message:
+            # Check if it's asking about account types or minimum balance requirements
+            if any(keyword in message for keyword in ['student', 'nri', 'senior', 'account type', 'minimum', 'min', 'required', 'need']):
+                return 'account_info'
+            # Check if it's asking about current balance
+            elif any(keyword in message for keyword in ['current', 'my', 'check', 'what is', 'show', 'available']):
+                return 'balance_inquiry'
+        
+        # Transform the message using TF-IDF
+        message_vec = self.vectorizer.transform([processed_message])
+        
+        # Calculate similarity with all known intents
+        similarities = {}
         for intent, keywords in self.service_keywords.items():
-            if any(re.search(r'\b' + re.escape(keyword) + r'\b', message) for keyword in keywords):
-                return intent
+            # Create a document for this intent by joining all keywords
+            intent_doc = " ".join(keywords)
+            intent_vec = self.vectorizer.transform([intent_doc])
+            
+            # Calculate cosine similarity
+            similarity = cosine_similarity(message_vec, intent_vec)[0][0]
+            similarities[intent] = similarity
         
-        all_keywords = [kw for sublist in self.service_keywords.values() for kw in sublist]
-        matches = get_close_matches(message, all_keywords, n=1, cutoff=0.6)
+        # Get the most similar intent
+        best_intent = max(similarities.items(), key=lambda x: x[1])
         
-        if matches:
-            matched_keyword = matches[0]
-            for intent, keywords in self.service_keywords.items():
-                if matched_keyword in keywords:
-                    return intent
+        # Only return if similarity is above threshold
+        if best_intent[1] > 0.3:
+            return best_intent[0]
         
         return None
+    def _extract_entities(self, message: str) -> Dict[str, Any]:
+        """Extract named entities from the message using NLP"""
+        doc = nlp(message)
+        entities = {
+            'amounts': [],
+            'dates': [],
+            'account_types': [],
+            'loan_types': [],
+            'scheme_names': [],
+            'card_types': [],
+            'netbanking_features': []
+        }
+        
+        # Extract entities using spaCy NER
+        for ent in doc.ents:
+            if ent.label_ == 'MONEY':
+                # Extract numerical value from money string
+                amount = re.search(r'\d+', ent.text)
+                if amount:
+                    entities['amounts'].append(float(amount.group()))
+            elif ent.label_ == 'DATE':
+                entities['dates'].append(ent.text)
+            elif ent.label_ == 'ORG' and ('account' in message.lower() or 'loan' in message.lower() or 'scheme' in message.lower() or 'card' in message.lower()):
+                # This is a simple heuristic - in a real app you'd want more sophisticated entity recognition
+                if 'account' in message.lower():
+                    entities['account_types'].append(ent.text)
+                elif 'loan' in message.lower():
+                    entities['loan_types'].append(ent.text)
+                elif 'scheme' in message.lower():
+                    entities['scheme_names'].append(ent.text)
+                elif 'card' in message.lower():
+                    entities['card_types'].append(ent.text)
+        
+        # Check for specific card types
+        card_keywords = {
+            'visa': ['visa', 'vs'],
+            'mastercard': ['mastercard', 'master card', 'mc'],
+            'rupay': ['rupay', 'rp']
+        }
+        
+        for card_type, keywords in card_keywords.items():
+            if any(keyword in message.lower() for keyword in keywords):
+                entities['card_types'].append(card_type)
+        
+        # Check for netbanking features
+        netbanking_features = CGBankDatabase.get_netbanking_features()
+        for feature in netbanking_features.keys():
+            if feature.replace('_', ' ') in message.lower():
+                entities['netbanking_features'].append(feature)
+        
+        return entities
     
     def _extract_amount_filters(self, message: str) -> Dict[str, float]:
         """Extract amount filters from the message (greater than, less than, between)"""
@@ -916,7 +1273,7 @@ class RexaBot:
         # Add transaction details
         for i, txn in enumerate(transactions[:10], 1):
             sign = "+" if txn['amount'] > 0 else ""
-            response += (f"{i}. {txn['description']}\n"
+            response += (f"{i}. **{txn['description']}**\n"
                         f"   Amount: {sign}₹{abs(txn['amount']):,.2f}\n"
                         f"   Date: {txn['date'].strftime('%Y-%m-%d %H:%M')}\n"
                         f"   Balance: ₹{txn['balance']:,.2f}\n\n")
@@ -924,6 +1281,331 @@ class RexaBot:
         if len(transactions) > 10:
             response += f"\nShowing 10 of {len(transactions)} matching transactions."
         
+        response += "\nWould you like to see more details about any of these transactions?"
+        return response
+    
+    def _get_atm_info(self) -> str:
+        """Get information about ATM services"""
+        atm_info = self.knowledge_base.get('atm_locations', [])
+        card_services = self.knowledge_base.get('card_services', {})
+        
+        response = "**ATM and Card Services at CGBank:**\n\n"
+        
+        if atm_info:
+            response += "**ATM Locations:**\n"
+            for atm in atm_info[:3]:  # Show top 3 nearest ATMs
+                response += f"- {atm['location']} (Distance: {atm.get('distance', '0.5km')})\n"
+            response += "\n"
+        
+        if card_services:
+            response += "**Card Services:**\n"
+            response += f"- Daily Withdrawal Limit: ₹{card_services.get('withdrawal_limit', '50,000')}\n"
+            response += f"- Transaction Limit: ₹{card_services.get('transaction_limit', '1,00,000')}\n"
+            response += f"- International Usage: {'Yes' if card_services.get('international_usage', False) else 'No'}\n"
+            response += f"- Contactless Limit: ₹{card_services.get('contactless_limit', '5,000')}\n\n"
+        
+        response += "For lost/stolen cards, please call our 24/7 helpline immediately to block your card."
+        return response
+    
+    def _get_customer_support_info(self) -> str:
+        """Get customer support information"""
+        bank_info = self.knowledge_base.get('bank', {})
+        
+        response = "**CGBank Customer Support:**\n\n"
+        response += f"**Helpline:** {bank_info.get('helpline', '1800-123-4506')} (24/7)\n"
+        response += f"**Email:** {bank_info.get('email', 'support@cgbank.com')}\n"
+        response += "**Branch Hours:** 9:30 AM - 4:30 PM (Mon-Fri), 9:30 AM - 1:30 PM (Sat)\n\n"
+        response += "For complaints or grievances, please visit any branch or email us with details."
+        
+        return response
+    
+    def _get_interest_rates_info(self) -> str:
+        """Get current interest rates information"""
+        rates = self.knowledge_base.get('interest_rates', {})
+        
+        response = "**Current Interest Rates at CGBank:**\n\n"
+        
+        if rates.get('savings'):
+            response += f"- **Savings Account:** {rates['savings']}%\n"
+        if rates.get('fixed_deposit'):
+            response += f"- **Fixed Deposits:**\n"
+            for tenure, rate in rates['fixed_deposit'].items():
+                response += f"  - {tenure}: {rate}%\n"
+        if rates.get('loan'):
+            response += f"- **Loan Rates:**\n"
+            for loan_type, rate in rates['loan'].items():
+                response += f"  - {loan_type}: {rate}%\n"
+        response += "we are currently providing 3.2 ROI for fixed deposit\n\n"
+        response += "\nRates are subject to change. Please contact us for the most current rates."
+        return response
+    
+    def _get_security_info(self) -> str:
+        """Get security and fraud prevention information"""
+        security_info = self.knowledge_base.get('security_info', {})
+        
+        response = "**Security Tips from CGBank:**\n\n"
+        
+        if security_info.get('tips'):
+            response += "**Important Security Tips:**\n"
+            for tip in security_info['tips']:
+                response += f"- {tip}\n"
+            response += "\n"
+        
+        if security_info.get('fraud_prevention'):
+            response += "**Fraud Prevention:**\n"
+            for measure in security_info['fraud_prevention']:
+                response += f"- {measure}\n"
+            response += "\n"
+        
+        response += "**If you suspect fraud:**\n"
+        response += "1. Contact us immediately\n"
+        response += "2. Change your passwords\n"
+        response += "3. Monitor your account activity\n"
+        
+        return response
+    
+    def _get_investment_info(self) -> str:
+        """Get investment product information"""
+        investments = self.knowledge_base.get('investment_products', [])
+        
+        response = "**Investment Options at CGBank:**\n\n"
+        
+        for product in investments:
+            response += f"**{product['name']}**\n"
+            response += f"- Minimum Investment: ₹{product.get('min_amount', '5,000')}\n"
+            response += f"- Tenure: {product.get('tenure', '1-5 years')}\n"
+            response += f"- Expected Returns: {product.get('returns', '5-10%')}\n\n"
+        
+        response += "Our financial advisors can help you choose the right investment based on your goals."
+        return response
+    
+    def _get_card_details_response(self, card_type: str, username: str = None) -> str:
+        # First, try to find the card by exact ID match
+        card_data = CGBankDatabase.get_card_details(card_type)
+    
+        # If not found by ID, try to match by card name or partial name
+        if not card_data:
+            all_cards = BANK_DATA['cards']
+            card_data = None
+            card_id = None
+            
+            # Try to find by name match (case-insensitive)
+            for cid, cdata in all_cards.items():
+                if (card_type.lower() in cdata['name'].lower() or 
+                    cdata['name'].lower() in card_type.lower()):
+                    card_data = cdata
+                    card_id = cid
+                    break
+            
+            # If still not found, try partial matching with common card terms
+            if not card_data:
+                card_type_lower = card_type.lower()
+                for cid, cdata in all_cards.items():
+                    card_name_lower = cdata['name'].lower()
+                    # Check for common card type keywords
+                    if (('visa' in card_type_lower and 'visa' in card_name_lower) or
+                        ('mastercard' in card_type_lower and 'mastercard' in card_name_lower) or
+                        ('rupay' in card_type_lower and 'rupay' in card_name_lower) or
+                        ('platinum' in card_type_lower and 'platinum' in card_name_lower) or
+                        ('gold' in card_type_lower and 'gold' in card_name_lower) or
+                        ('classic' in card_type_lower and 'classic' in card_name_lower) or
+                        ('credit' in card_type_lower and 'credit' in cdata['type'].lower()) or
+                        ('debit' in card_type_lower and 'debit' in cdata['type'].lower())):
+                        card_data = cdata
+                        card_id = cid
+                        break
+        else:
+            # If found by ID, set the card_id
+            card_id = card_type
+
+        # If still no card found, return error message
+        if not card_data:
+            return f"I couldn't find information about '{card_type}' card. Here are our available cards:\n\n" + self._get_all_cards_info()
+        
+        # Check if user has this card
+        user_has_card = False
+        if username:
+            user = CGBankDatabase.get_user(username)
+            if user and 'cards' in user and card_id in user['cards']:
+                user_has_card = True
+        
+        response = f"**{card_data['name']} Details**\n\n"
+        response += f"- **Type:** {card_data['type'].title()} Card\n"
+        response += f"- **Limit:** {card_data['limit']}\n"
+        
+        if card_data.get('interest_rate') and card_data['interest_rate'] != "N/A":
+            response += f"- **Interest Rate:** {card_data['interest_rate']}\n"
+        
+        response += f"- **Annual Fee:** {card_data['annual_fee']}\n"
+        response += f"- **Rewards:** {card_data['rewards']}\n"
+        response += f"- **Benefits:** {card_data['benefits']}\n\n"
+        
+        if user_has_card:
+            response += "✅ **You have this card!**\n\n"
+            response += "**Card Management:**\n"
+            response += f"- **Activation:** {card_data['activation']}\n"
+            response += f"- **Hotlisting:** {card_data['hotlisting']}\n\n"
+            response += "You can manage your card settings in the 'Cards' section of your account."
+        else:
+            response += "**How to Apply:** Visit any CGBank branch or apply online through our website.\n\n"
+            response += "Would you like to know more about the application process. please select the net banking sidebar ?"
+        return response
+
+    def _get_all_cards_info(self) -> str:
+        """Get information about all card types available at the bank"""
+        cards = BANK_DATA['cards']
+        
+        if not cards:
+            return "I couldn't find any card information. Please contact customer support."
+        
+        response = "**Card Types at CGBank:**\n\n"
+        
+        for card_id, card_data in cards.items():
+            response += f"**{card_data['name']}**\n"
+            response += f"- Type: {card_data['type'].title()} Card\n"
+            response += f"- Limit: {card_data['limit']}\n"
+            response += f"- Annual Fee: {card_data['annual_fee']}\n\n"
+        
+        response += "You can ask about specific cards like 'Visa Platinum' or 'Mastercard Gold' for more details."
+        return response
+    
+    def _get_user_cards_response(self, username: str) -> str:
+        """Get information about all cards associated with a user"""
+        user_cards = CGBankDatabase.get_user_cards(username)
+        if not user_cards:
+            return "You don't have any cards associated with your account. Would you like to apply for one , Please contact or Reach our nearest branch"
+        
+        response = "**Your Cards:**\n\n"
+        for card in user_cards:
+            response += f"**{card['name']}**\n"
+            response += f"- Type: {card['type'].title()} Card\n"
+            response += f"- Limit: {card['limit']}\n"
+            response += f"- Status: Active\n\n"
+        
+        response += "You can manage your cards in the 'Cards' section of your account."
+        return response
+    
+    def _get_card_management_response(self, message: str, username: str) -> str:
+        """Handle card management requests (activation, blocking, etc.)"""
+        user_cards = CGBankDatabase.get_user_cards(username)
+        if not user_cards:
+            return "You don't have any cards to manage. Would you like to apply for one?"
+        
+        # Extract card type if specified
+        card_types = [card['id'] for card in user_cards]
+        mentioned_card = None
+        for card_type in card_types:
+            if card_type in message.lower():
+                mentioned_card = card_type
+                break
+        
+        if 'activate' in message.lower():
+            if mentioned_card:
+                card_details = CGBankDatabase.get_card_details(mentioned_card)
+                return (f"To activate your {card_details['name']}:\n\n"
+                       f"{card_details['activation']}\n\n"
+                       "Would you like me to guide you through the activation process?")
+            else:
+                return ("Please specify which card you want to activate. You have:\n\n" +
+                       "\n".join([f"- {card['name']}" for card in user_cards]) +
+                       "\n\nYou can say 'activate my Visa Platinum card'")
+        
+        elif 'block' in message.lower() or 'lost' in message.lower() or 'stolen' in message.lower():
+            if mentioned_card:
+                card_details = CGBankDatabase.get_card_details(mentioned_card)
+                return (f"To block your {card_details['name']}:\n\n"
+                       f"{card_details['hotlisting']}\n\n"
+                       "This is urgent! Please confirm you want to block this card immediately.")
+            else:
+                return ("Please specify which card you want to block. You have:\n\n" +
+                       "\n".join([f"- {card['name']}" for card in user_cards]) +
+                       "\n\nYou can say 'block my Mastercard Gold'")
+        
+        elif 'limit' in message.lower():
+            return ("You can change your card limits through netbanking or by visiting a branch. " +
+                   "Current limits for your cards:\n\n" +
+                   "\n".join([f"- {card['name']}: {card['limit']}" for card in user_cards]))
+        
+        else:
+            return ("I can help you with card activation, blocking lost cards, or changing limits. " +
+                   "What would you like to do with your cards?\n\n" +
+                   "You have:\n" +
+                   "\n".join([f"- {card['name']}" for card in user_cards]))
+    
+    def _get_netbanking_info_response(self, feature: str = None) -> str:
+        """Get information about netbanking features"""
+        netbanking_features = CGBankDatabase.get_netbanking_features()
+        
+        if feature:
+            feature_data = netbanking_features.get(feature)
+            if not feature_data:
+                return f"I couldn't find information about '{feature}'. Here are our netbanking features:\n\n" + self._get_netbanking_info_response()
+            
+            response = f"**{feature.replace('_', ' ').title()} in Netbanking:**\n\n"
+            response += f"**Description:** {feature_data['description']}\n"
+            response += f"**Limits:** {feature_data['limits']}\n"
+            response += f"**Processing Time:** {feature_data['processing_time']}\n\n"
+            return response
+        
+        response = "**Netbanking Features at CGBank:**\n\n"
+        for feature_name, feature_data in netbanking_features.items():
+            response += f"**{feature_name.replace('_', ' ').title()}:** {feature_data['description']}\n"
+            response += f"- Limits: {feature_data['limits']}\n"
+            response += f"- Processing: {feature_data['processing_time']}\n\n"
+        
+        response += "You can enable netbanking through our mobile app or by visiting any branch."
+        return response
+    
+    def _get_enable_netbanking_response(self, username: str) -> str:
+        """Provide information about enabling netbanking"""
+        user = CGBankDatabase.get_user(username)
+        if not user:
+            return "Please log in to enable netbanking."
+        
+        if user.get('netbanking_enabled', False):
+            return ("Your netbanking is already enabled! You can access all features through our website or mobile app.\n\n"
+                   "Would you like information about any specific netbanking feature?")
+        
+        return ("To enable netbanking for your account:\n\n"
+               "1. Visit any CGBank branch with your ID proof\n"
+               "2. Request netbanking activation\n"
+               "3. You'll receive an activation code via SMS\n"
+               "4. Use this code to register on our website or app\n\n"
+               "Would you like me to guide you through the process?")
+    
+    def _get_account_details_response(self, username: str) -> str:
+        """Get detailed account information for the user"""
+        user = CGBankDatabase.get_user(username)
+        if not user:
+            return "Please log in to view your account details."
+        
+        response = f"**Account Details for {user['name']}**\n\n"
+        response += f"- **Account Number:** {user['account_number']}\n"
+        response += f"- **Account Type:** {user['account_type']}\n"
+        response += f"- **Current Balance:** ₹{user['balance']:,.2f}\n"
+        response += f"- **Registered Email:** {user.get('email', 'Not provided')}\n"
+        response += f"- **Registered Phone:** {user.get('phone', 'Not provided')}\n"
+        response += f"- **Address:** {user.get('address', 'Not provided')}\n\n"
+        
+        # Add card information if available
+        if 'cards' in user and user['cards']:
+            response += "**Cards Linked to Your Account:**\n"
+            for card_id in user['cards']:
+                card_details = CGBankDatabase.get_card_details(card_id)
+                if card_details:
+                    response += f"- {card_details['name']} ({card_details['type'].title()} Card)\n"
+            response += "\n"
+        
+        response += "**Account Features:**\n"
+        account_info = CGBankDatabase.get_account_info().get(user['account_type'].lower().replace(' ', '_'), {})
+        if account_info.get('features'):
+            features = account_info['features'].split(',')
+            for feature in features:
+                response += f"- {feature.strip()}\n"
+        else:
+            response += "- Standard banking features\n"
+        
+        response += "\nFor any changes to your account, please visit your nearest branch."
         return response
     
     def process_message(self, message: str, username: Optional[str] = None) -> str:
@@ -931,15 +1613,19 @@ class RexaBot:
         message = message.lower()
         user_data = CGBankDatabase.get_user(username) if username else None
         intent = self._identify_intent(message)
+        entities = self._extract_entities(message)
         
+        # Handle greetings
         if any(word in message for word in ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening']):
             if user_data:
                 return f"Hello {user_data['name']}! {self._get_random_response('greetings')}"
             return self._get_random_response('greetings')
         
+        # Handle thanks
         if any(word in message for word in ['thank', 'thanks', 'appreciate']):
             return self._get_random_response('thanks')
         
+        # Handle monthly report requests
         if intent == 'monthly_report':
             if not user_data:
                 return "Please log in to view your monthly report."
@@ -966,20 +1652,24 @@ class RexaBot:
             
             return response
         
+        # Handle download confirmation
         if message.lower() in ['yes', 'y', 'download', 'download report'] and 'download_link' in st.session_state:
             download_link = st.session_state.download_link
             del st.session_state.download_link
             return f"Here's your download link:\n\n{download_link}"
         
+        # Handle download cancellation
         if message.lower() in ['no', 'n', 'cancel'] and 'download_link' in st.session_state:
             del st.session_state.download_link
             return "Monthly report download cancelled. Let me know if you need anything else!"
         
+        # Handle balance inquiries
         if intent == 'balance_inquiry':
             if user_data:
-                return self._get_random_response('balance_inquiry').format(balance=user_data['balance'])
+                return f"Your current account balance is ₹{user_data['balance']:,.2f}."
             return "Please log in to check your account balance."
         
+        # Handle transaction history requests
         elif intent == 'transaction_history':
             if user_data:
                 # Check for transaction filters
@@ -1003,13 +1693,15 @@ class RexaBot:
                     response = "Here are your recent transactions:\n\n"
                     for i, txn in enumerate(recent_transactions, 1):
                         sign = "+" if txn['amount'] > 0 else ""
-                        response += (f"{i}. {txn['description']}\n"
+                        response += (f"{i}. **{txn['description']}**\n"
                                     f"   Amount: {sign}₹{abs(txn['amount']):,.2f}\n"
                                     f"   Date: {txn['date'].strftime('%Y-%m-%d %H:%M')}\n"
-                                    f"   Balance: ₹{txn['balance']:,.2f}\n")
-                    return response.rstrip()
+                                    f"   Balance: ₹{txn['balance']:,.2f}\n\n")
+                    response += "Would you like to filter these transactions by amount or date?"
+                    return response
             return "Please log in to view your transaction history."
         
+        # Handle filtered transaction requests
         elif intent == 'filter_transactions':
             if user_data:
                 amount_filters = self._extract_amount_filters(message)
@@ -1024,16 +1716,19 @@ class RexaBot:
                 return self._format_transactions_response(filtered_transactions, all_filters)
             return "Please log in to view your transactions."
         
+        # Handle fund transfer requests
         elif intent == 'fund_transfer':
             if user_data:
-                return self._get_random_response('fund_transfer')
+                return "To transfer money, please go to the 'Transfer' section in your dashboard. Would you like me to take you there?"
             return "Please log in to initiate a fund transfer."
         
+        # Handle bill payment requests
         elif intent == 'bill_payment':
             if user_data:
-                return self._get_random_response('bill_payment')
+                return "You can pay your bills in the 'Bills' section of your dashboard."
             return "Please log in to pay your bills."
         
+        # Handle bank information requests
         elif intent == 'bank_info':
             bank_info = CGBankDatabase.get_bank_info()
             if 'branch' in message or 'location' in message:
@@ -1054,8 +1749,11 @@ class RexaBot:
                        f"**Email:** {bank_info['email']}\n"
                        f"**Helpline:** {bank_info['helpline']}")
         
+        # Handle loan information requests
         elif intent == 'loan_info':
-            if 'personal' in message:
+            if entities.get('loan_types'):
+                return self._extract_loan_info(entities['loan_types'][0])
+            elif 'personal' in message:
                 return self._extract_loan_info('Personal Loan')
             elif 'home' in message:
                 return self._extract_loan_info('Home Loan')
@@ -1066,9 +1764,12 @@ class RexaBot:
             else:
                 return self._get_all_loans_info()
         
+        # Handle account information requests
         elif intent == 'account_info':
             if any(word in message for word in ['create', 'open', 'new']):
                 return self._get_account_creation_info()
+            elif entities.get('account_types'):
+                return self._extract_account_info(entities['account_types'][0])
             elif 'student' in message:
                 return self._extract_account_info('student_account')
             elif 'nri' in message:
@@ -1078,8 +1779,11 @@ class RexaBot:
             else:
                 return self._get_all_accounts_info()
             
+        # Handle scheme information requests
         elif intent == 'scheme_info':
-            if 'modi' in message:
+            if entities.get('scheme_names'):
+                return self._extract_scheme_info(entities['scheme_names'][0])
+            elif 'modi' in message:
                 return self._extract_scheme_info('Modi Scheme')
             elif 'farmer' in message:
                 return self._extract_scheme_info('PM Farmer Scheme')
@@ -1088,9 +1792,72 @@ class RexaBot:
             else:
                 return self._get_all_schemes_info()
             
+        # Handle ATM and card services
+        elif intent == 'atm_info':
+            return self._get_atm_info()
+            
+        # Handle card information requests
+        elif intent == 'card_info':
+            if not user_data:
+                return "Please log in to view card information."
+            
+            if entities.get('card_types'):
+                # User asked about a specific card type
+                return self._get_card_details_response(entities['card_types'][0], username)
+            elif 'my cards' in message or 'my card' in message:
+                # User asked about their own cards
+                return self._get_user_cards_response(username)
+            elif 'types' in message or 'kinds' in message or 'what cards' in message:
+                # User asked about card types in general
+                return self._get_all_cards_info()
+            else:
+                # General card information request
+                return self._get_user_cards_response(username)
+            
+        # Handle card management requests
+        elif intent == 'card_management':
+            if not user_data:
+                return "Please log in to manage your cards."
+            
+            return self._get_card_management_response(message, username)
+            
+        # Handle netbanking information requests
+        elif intent == 'netbanking_info':
+            if entities.get('netbanking_features'):
+                return self._get_netbanking_info_response(entities['netbanking_features'][0])
+            elif 'enable' in message or 'activate' in message:
+                return self._get_enable_netbanking_response(username)
+            else:
+                return self._get_netbanking_info_response()
+            
+        # Handle customer support
+        elif intent == 'customer_support':
+            return self._get_customer_support_info()
+            
+        # Handle interest rates
+        elif intent == 'interest_rates':
+            return self._get_interest_rates_info()
+            
+        # Handle security info
+        elif intent == 'security_info':
+            return self._get_security_info()
+            
+        # Handle investment info
+        elif intent == 'investment_info':
+            return self._get_investment_info()
+            
+        # Handle account details requests
+        elif intent == 'account_details':
+            if not user_data:
+                return "Please log in to view your account details."
+            
+            return self._get_account_details_response(username)
+            
+        # For all other queries, use Ollama with context
         context = ""
         if user_data:
-            context = f"Customer: {user_data['name']}, Account Balance: ₹{user_data['balance']:,.2f}"
+            context = (f"Customer: {user_data['name']}, Account Balance: ₹{user_data['balance']:,.2f}\n"
+                      f"Account Type: {user_data['account_type']}, Last Login: {datetime.now().strftime('%Y-%m-%d')}")
         
         return self._get_ollama_response(message, context)
 
@@ -1124,6 +1891,8 @@ class CGBankApp:
             st.session_state.feedback_submitted = False
         if 'show_create_account' not in st.session_state:
             st.session_state.show_create_account = False
+        if 'show_card_details' not in st.session_state:
+            st.session_state.show_card_details = None
     
     def _setup_page_config(self):
         """Configure the Streamlit page settings"""
@@ -1278,19 +2047,74 @@ class CGBankApp:
                 box-shadow: 0 4px 12px rgba(0,0,0,0.1);
                 margin-top: 2rem;
             }
-            .chatbot-gif {
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                z-index: 1000;
-                width: 80px;
-                height: 80px;
-                cursor: pointer;
-                border-radius: 50%;
-                transition: transform 0.3s ease;
+            .markdown-text {
+                font-family: Arial, sans-serif;
+                line-height: 1.6;
             }
-            .chatbot-gif:hover {
-                transform: scale(1.1);
+            .markdown-text strong {
+                color: #2a5298;
+            }
+            .markdown-text ul {
+                padding-left: 1.5rem;
+            }
+            .markdown-text li {
+                margin-bottom: 0.5rem;
+            }
+            .card-details {
+                background: white;
+                padding: 1.5rem;
+                border-radius: 10px;
+                margin: 1rem 0;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            }
+            .card-details-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 1rem;
+                padding-bottom: 0.5rem;
+                border-bottom: 1px solid #eee;
+            }
+            .card-type-badge {
+                padding: 0.25rem 0.5rem;
+                border-radius: 4px;
+                font-size: 0.8rem;
+                font-weight: bold;
+                text-transform: uppercase;
+            }
+            .card-type-credit {
+                background-color: #4caf50;
+                color: white;
+            }
+            .card-type-debit {
+                background-color: #2196f3;
+                color: white;
+            }
+            .card-feature {
+                display: flex;
+                align-items: center;
+                margin: 0.5rem 0;
+            }
+            .card-feature-icon {
+                margin-right: 0.5rem;
+                color: #2a5298;
+            }
+            .netbanking-feature {
+                background: white;
+                padding: 1rem;
+                border-radius: 8px;
+                margin: 0.5rem 0;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .netbanking-feature-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 0.5rem;
+            }
+            .netbanking-feature-title {
+                font-weight: bold;
+                color: #2a5298;
             }
         </style>
         """, unsafe_allow_html=True)
@@ -1360,7 +2184,7 @@ class CGBankApp:
                 self._render_login_form()
     
     def _render_login_form(self):
-        """Render the login form"""
+        """Render the login form with proper authentication"""
         st.markdown("### Login to Your Account")
         
         with st.form("login_form"):
@@ -1379,26 +2203,25 @@ class CGBankApp:
                     return
                 
                 try:
-                    if not CGBankDatabase.verify_user(username, password):
+                    # Verify user credentials
+                    if CGBankDatabase.verify_user(username, password):
+                        st.session_state.logged_in = True
+                        st.session_state.current_user = username.lower()
+                        st.session_state.page = "dashboard"
+                        st.session_state.transactions = CGBankDatabase.get_user_transactions(username)
+                        st.success("Login successful!")
+                        st.rerun()
+                    else:
                         st.error("Invalid username or password!")
-                        return
-                        
-                    st.session_state.logged_in = True
-                    st.session_state.current_user = username.lower()
-                    st.session_state.page = "dashboard"
-                    st.session_state.transactions = CGBankDatabase.get_user_transactions(username)
-                    st.success("Login successful!")
-                    st.rerun()
-                    st.balloons()
                 except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
+                    st.error(f"An error occurred during login: {str(e)}")
             
             if create_account:
                 st.session_state.show_create_account = True
                 st.rerun()
     
     def _render_create_account_form(self):
-        """Render the account creation form"""
+        """Render the account creation form with proper user creation"""
         st.markdown("### Create a New CGBank Account")
         
         with st.form("create_account_form"):
@@ -1412,7 +2235,7 @@ class CGBankApp:
             account_type = st.selectbox(
                 "Account Type",
                 options=["Student Account", "NRI Account", "Senior Citizen Account", "Regular Savings Account"],
-                index=0
+                index=3
             )
             
             username = st.text_input("Choose Username", placeholder="Create a username")
@@ -1455,33 +2278,31 @@ class CGBankApp:
                     st.error("Username already exists! Please choose another one.")
                     return
                 
-                # Prepare account data
-                account_data = {
-                    "full_name": full_name,
+                # Prepare user data
+                user_data = {
+                    "name": full_name,
                     "email": email,
                     "phone": phone,
                     "address": address,
                     "account_type": account_type,
-                    "username": username,
-                    "password": CGBankDatabase.hash_password(password),
                     "aadhar_number": aadhar_number,
                     "pan_number": pan_number,
-                    "request_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    "balance": 1000.0,  # Initial balance
+                    "account_number": str(random.randint(1000000000, 9999999999))
                 }
                 
-                # Save account request
-                if CGBankDatabase.request_new_account(account_data):
+                # Create the user account
+                if CGBankDatabase.create_user(username, password, user_data):
                     st.session_state.show_create_account = False
                     st.success("""
-                    Your account request has been submitted successfully!
+                    Your account has been created successfully!
                     
-                    Our bank staff will contact you shortly to complete the KYC process.
-                    You'll receive your account details via email once approved.
+                    You can now login with your username and password.
                     
                     Thank you for choosing CGBank!
                     """)
                 else:
-                    st.error("Failed to submit account request. Please try again later.")
+                    st.error("Failed to create account. Please try again.")
     
     def _render_dashboard(self):
         """Render the dashboard page"""
@@ -1691,7 +2512,7 @@ class CGBankApp:
                 """, unsafe_allow_html=True)
                 
                 st.markdown(f"""
-                <div class="bot-message">
+                <div class="bot-message markdown-text">
                     <strong>🤖 Rexa:</strong> {conv['bot']}
                 </div>
                 """, unsafe_allow_html=True)
@@ -1720,14 +2541,14 @@ class CGBankApp:
 
     def _render_popup_bot(self):
         """Render the popup bot interface with a GIF toggle button"""
-        # Using a chatbot GIF from Giphy
-        chatbot_gif_url = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExc2Z4d2R1d3hxY3V1b3B0aGZ1dW1yZzV5eGx1eWJ1dG5qZ3l6bSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7qE1YN7aBOFPRw8E/giphy.gif"
+        # Robot GIF URL (you can replace this with your own GIF)
+        robot_gif_url = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcjVtY2V4bHJ5Z3R0eWJ4c3B6dHh0bHZ5d2V5d3J2dXZ5Z2F4eWZ4ZyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/l0HU7JI8AfUAbM5HO/giphy.gif"
         
-        # Display the GIF as a clickable button
+        # Create a button with the GIF as its content
         st.markdown(f"""
-        <div class="chatbot-gif" onclick="document.getElementById('toggle-bot').click()">
-            <img src="{chatbot_gif_url}" alt="Chat with Rexa" style="width: 100%; height: 100%; border-radius: 50%;">
-        </div>
+        <button class="popup-toggle-btn" onclick="document.getElementById('toggle-bot').click()">
+            <img src="{robot_gif_url}" alt="Chat with Rexa">
+        </button>
         """, unsafe_allow_html=True)
         
         # Hidden checkbox to control the popup state
@@ -1756,7 +2577,7 @@ class CGBankApp:
                     """, unsafe_allow_html=True)
                     
                     st.markdown(f"""
-                    <div class="popup-bot-message">
+                    <div class="popup-bot-message markdown-text">
                         <strong>Rexa:</strong> {conv['bot']}
                     </div>
                     """, unsafe_allow_html=True)
@@ -1845,6 +2666,12 @@ class CGBankApp:
                     st.rerun()
                 if st.button("📈 Reports", key="sidebar_reports", use_container_width=True):
                     st.session_state.page = "reports"
+                    st.rerun()
+                if st.button("💳 Cards", key="sidebar_cards", use_container_width=True):
+                    st.session_state.page = "cards"
+                    st.rerun()
+                if st.button("🌐 Netbanking", key="sidebar_netbanking", use_container_width=True):
+                    st.session_state.page = "netbanking"
                     st.rerun()
                 if st.button("🤖 Rexa", key="sidebar_rexa", use_container_width=True):
                     st.session_state.page = "rexa"
@@ -2036,6 +2863,160 @@ class CGBankApp:
                     except Exception as e:
                         st.error(f"Error processing bill payment: {str(e)}")
     
+    def _render_cards_page(self):
+        """Render the cards management page"""
+        st.markdown("### 💳 Your Cards")
+        
+        user = CGBankDatabase.get_user(st.session_state.current_user)
+        if not user:
+            st.error("User data not found!")
+            return
+        
+        user_cards = CGBankDatabase.get_user_cards(st.session_state.current_user)
+        
+        if not user_cards:
+            st.info("You don't have any cards associated with your account. Would you like to apply for one?")
+            if st.button("Apply for New Card", use_container_width=True):
+                st.session_state.page = "rexa"
+                st.session_state.bot_conversation.append({
+                    'user': "I want to apply for a new card",
+                    'bot': self.bot.process_message("I want to apply for a new card", st.session_state.current_user)
+                })
+                st.rerun()
+            return
+        
+        # If a specific card is selected, show its details
+        if st.session_state.show_card_details:
+            card_details = CGBankDatabase.get_card_details(st.session_state.show_card_details)
+            if not card_details:
+                st.error("Card details not found!")
+                st.session_state.show_card_details = None
+                st.rerun()
+                return
+            
+            st.markdown(f"""
+            <div class="card-details">
+                <div class="card-details-header">
+                    <h3>{card_details['name']}</h3>
+                    <span class="card-type-badge {'card-type-credit' if card_details['type'] == 'credit' else 'card-type-debit'}">
+                        {card_details['type'].upper()}
+                    </span>
+                </div>
+                
+                <div class="card-feature">
+                    <span class="card-feature-icon">💳</span>
+                    <span><strong>Card Number:</strong> •••• •••• •••• {random.randint(1000, 9999)}</span>
+                </div>
+                
+                <div class="card-feature">
+                    <span class="card-feature-icon">📅</span>
+                    <span><strong>Expires:</strong> {datetime.now().month:02d}/{datetime.now().year + 3}</span>
+                </div>
+                
+                <div class="card-feature">
+                    <span class="card-feature-icon">💰</span>
+                    <span><strong>Limit:</strong> {card_details['limit']}</span>
+                </div>
+                
+                <div class="card-feature">
+                    <span class="card-feature-icon">🏆</span>
+                    <span><strong>Rewards:</strong> {card_details['rewards']}</span>
+                </div>
+                
+                <div class="card-feature">
+                    <span class="card-feature-icon">🛡️</span>
+                    <span><strong>Benefits:</strong> {card_details['benefits']}</span>
+                </div>
+                
+                <div style="margin-top: 1.5rem;">
+                    <h4>Card Management</h4>
+                    <p>{card_details['activation']}</p>
+                    <p style="color: #dc3545; font-weight: bold;">{card_details['hotlisting']}</p>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔒 Block Card", key="block_card", use_container_width=True):
+                    st.warning(f"Are you sure you want to block your {card_details['name']}? This action cannot be undone!")
+                    if st.button("✅ Confirm Block", key="confirm_block", use_container_width=True):
+                        st.error("Card blocked successfully! A replacement will be issued within 7-10 business days.")
+                        st.session_state.show_card_details = None
+                        st.rerun()
+            with col2:
+                if st.button("⬅️ Back to Cards", key="back_to_cards", use_container_width=True):
+                    st.session_state.show_card_details = None
+                    st.rerun()
+            
+            return
+        
+        # Show all cards
+        for card in user_cards:
+            st.markdown(f"""
+            <div class="transaction-item">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h4 style="margin: 0;">{card['name']}</h4>
+                        <p style="margin: 0; color: #6c757d;">
+                            {card['type'].title()} Card •••• •••• •••• {random.randint(1000, 9999)}
+                        </p>
+                    </div>
+                    <div style="text-align: right;">
+                        <span style="color: #6c757d; font-size: 0.9em;">Exp {datetime.now().month:02d}/{datetime.now().year + 3}</span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(f"View Details", key=f"view_{card['id']}", use_container_width=True):
+                    st.session_state.show_card_details = card['id']
+                    st.rerun()
+            with col2:
+                if st.button(f"Block Card", key=f"block_{card['id']}", use_container_width=True):
+                    st.session_state.show_card_details = card['id']
+                    st.rerun()
+    
+    def _render_netbanking_page(self):
+        """Render the netbanking features page"""
+        st.markdown("### 🌐 Netbanking Services")
+        
+        user = CGBankDatabase.get_user(st.session_state.current_user)
+        if not user:
+            st.error("User data not found!")
+            return
+        
+        if not user.get('netbanking_enabled', False):
+            st.warning("Netbanking is not enabled for your account.")
+            if st.button("Enable Netbanking", use_container_width=True):
+                if CGBankDatabase.enable_netbanking(st.session_state.current_user):
+                    st.success("Netbanking enabled successfully! You can now access all online services.")
+                    st.rerun()
+                else:
+                    st.error("Failed to enable netbanking. Please try again or visit a branch.")
+            return
+        
+        st.success("✅ Netbanking is enabled for your account. You can access all features below.")
+        
+        netbanking_features = CGBankDatabase.get_netbanking_features()
+        
+        for feature_name, feature_data in netbanking_features.items():
+            st.markdown(f"""
+            <div class="netbanking-feature">
+                <div class="netbanking-feature-header">
+                    <span class="netbanking-feature-title">{feature_name.replace('_', ' ').title()}</span>
+                </div>
+                <p>{feature_data['description']}</p>
+                <p><strong>Limits:</strong> {feature_data['limits']}</p>
+                <p><strong>Processing Time:</strong> {feature_data['processing_time']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button(f"Access {feature_name.replace('_', ' ').title()}", key=f"access_{feature_name}", use_container_width=True):
+                st.info(f"Redirecting to {feature_name.replace('_', ' ').title()} service...")
+    
     def run(self):
         """Run the application"""
         self._render_sidebar()
@@ -2053,6 +3034,10 @@ class CGBankApp:
                 self._render_bills_page()
             elif st.session_state.page == "reports":
                 self._render_report_page()
+            elif st.session_state.page == "cards":
+                self._render_cards_page()
+            elif st.session_state.page == "netbanking":
+                self._render_netbanking_page()
             elif st.session_state.page == "rexa":
                 self._render_bot_page()
         else:
@@ -2060,4 +3045,4 @@ class CGBankApp:
 
 if __name__ == "__main__":
     app = CGBankApp()
-    app.run() 
+    app.run()
